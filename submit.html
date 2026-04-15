@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Research Agent</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      padding: 48px 16px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      padding: 36px;
+      width: 100%;
+      max-width: 580px;
+    }
+
+    h1 { font-size: 20px; font-weight: 600; color: #111; margin-bottom: 6px; }
+    .subtitle { font-size: 14px; color: #666; margin-bottom: 24px; }
+
+    /* Tab switcher */
+    .tabs {
+      display: flex;
+      gap: 0;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 9px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #555;
+      background: #f9fafb;
+      border: none;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      text-align: center;
+    }
+
+    .tab:not(:last-child) { border-right: 1px solid #e5e7eb; }
+    .tab.active { background: #4f46e5; color: white; }
+    .tab:hover:not(.active) { background: #f0f0ff; color: #4f46e5; }
+
+    /* Panels */
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 6px;
+    }
+
+    input[type="url"], input[type="text"], textarea {
+      width: 100%;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-family: inherit;
+      color: #111;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input:focus, textarea:focus { border-color: #4f46e5; }
+
+    textarea { resize: vertical; }
+
+    .field { margin-bottom: 18px; }
+
+    /* File drop zone */
+    .dropzone {
+      border: 2px dashed #d1d5db;
+      border-radius: 8px;
+      padding: 28px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      background: #fafafa;
+      position: relative;
+    }
+
+    .dropzone:hover, .dropzone.dragover {
+      border-color: #4f46e5;
+      background: #f0f0ff;
+    }
+
+    .dropzone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .dropzone-icon { font-size: 28px; margin-bottom: 8px; }
+    .dropzone-label { font-size: 14px; color: #555; }
+    .dropzone-sub { font-size: 12px; color: #999; margin-top: 4px; }
+
+    .file-selected {
+      background: #f0fdf4;
+      border-color: #86efac;
+    }
+
+    .file-selected .dropzone-label { color: #166534; font-weight: 500; }
+
+    button[type="submit"] {
+      width: 100%;
+      background: #4f46e5;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+      margin-top: 4px;
+    }
+
+    button[type="submit"]:hover { background: #4338ca; }
+    button[type="submit"]:disabled { background: #a5a3f7; cursor: not-allowed; }
+
+    .result {
+      margin-top: 24px;
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 13px;
+      display: none;
+    }
+
+    .result.success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+    .result.error   { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+
+    .result-title { font-weight: 600; margin-bottom: 8px; font-size: 14px; }
+    .result-field { margin-bottom: 4px; }
+    .result-label { font-weight: 500; }
+
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .tag { background: #ede9fe; color: #5b21b6; border-radius: 4px; padding: 2px 8px; font-size: 12px; }
+
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Research Agent</h1>
+    <p class="subtitle">Save an article to your research library — by URL, file, or pasted text.</p>
+
+    <!-- Tab switcher -->
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('url')">URL</button>
+      <button class="tab" onclick="switchTab('file')">Upload File</button>
+      <button class="tab" onclick="switchTab('paste')">Paste Text</button>
+    </div>
+
+    <form id="form">
+
+      <!-- URL panel -->
+      <div class="panel active" id="panel-url">
+        <div class="field">
+          <label for="url">Article URL</label>
+          <input type="url" id="url" placeholder="https://..." autocomplete="off" />
+        </div>
+      </div>
+
+      <!-- File upload panel -->
+      <div class="panel" id="panel-file">
+        <div class="field">
+          <div class="dropzone" id="dropzone">
+            <input type="file" id="fileInput" accept=".txt,.md,.html,.htm,.csv,.pdf" />
+            <div class="dropzone-icon">📄</div>
+            <div class="dropzone-label" id="dropzone-label">Click to choose a file or drag and drop</div>
+            <div class="dropzone-sub">Supports .pdf, .txt, .md, .html — scanned PDFs (image-only) not supported</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Paste text panel -->
+      <div class="panel" id="panel-paste">
+        <div class="field">
+          <label for="pasteTitle">Title <span style="font-weight:400;color:#999">(optional)</span></label>
+          <input type="text" id="pasteTitle" placeholder="Article or document title" />
+        </div>
+        <div class="field">
+          <label for="pasteContent">Content</label>
+          <textarea id="pasteContent" rows="8" placeholder="Paste the full article text here…"></textarea>
+        </div>
+      </div>
+
+      <!-- Shared fields -->
+      <div class="field">
+        <label for="note">Note <span style="font-weight:400;color:#999">(optional)</span></label>
+        <textarea id="note" rows="2" placeholder="Why you saved this, what to follow up on…"></textarea>
+      </div>
+
+      <button type="submit" id="btn">Save to Research Library</button>
+    </form>
+
+    <div class="result" id="result"></div>
+  </div>
+
+  <script>
+    const WEBHOOK_URL = "https://re-search.up.railway.app/webhook/research-agent";
+
+    let activeTab = "url";
+    let fileContent = null;
+    let fileName = null;
+
+    function switchTab(tab) {
+      activeTab = tab;
+      document.querySelectorAll(".tab").forEach((t, i) => {
+        t.classList.toggle("active", ["url","file","paste"][i] === tab);
+      });
+      document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+      document.getElementById("panel-" + tab).classList.add("active");
+      document.getElementById("result").style.display = "none";
+    }
+
+    // PDF.js setup
+    if (window['pdfjs-dist/build/pdf']) {
+      const pdfjsLib = window['pdfjs-dist/build/pdf'];
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    }
+
+    async function extractPdfText(arrayBuffer) {
+      const pdfjsLib = window['pdfjs-dist/build/pdf'];
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const pages = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const pageText = content.items.map(item => item.str).join(" ");
+        pages.push(pageText);
+      }
+      return pages.join("\n\n");
+    }
+
+    // File reading
+    const fileInput = document.getElementById("fileInput");
+    const dropzone  = document.getElementById("dropzone");
+
+    fileInput.addEventListener("change", () => readFile(fileInput.files[0]));
+
+    dropzone.addEventListener("dragover", e => { e.preventDefault(); dropzone.classList.add("dragover"); });
+    dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+    dropzone.addEventListener("drop", e => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+      if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
+    });
+
+    async function readFile(file) {
+      if (!file) return;
+
+      const label = document.getElementById("dropzone-label");
+      label.textContent = "Reading " + file.name + "…";
+
+      try {
+        if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+          // PDF extraction via PDF.js
+          const arrayBuffer = await file.arrayBuffer();
+          const text = await extractPdfText(arrayBuffer);
+          if (!text || text.trim().length < 100) {
+            label.textContent = "⚠ Could not extract text — this may be a scanned PDF";
+            fileContent = null;
+            return;
+          }
+          fileContent = text;
+        } else {
+          // Plain text files
+          fileContent = await file.text();
+        }
+
+        fileName = file.name;
+        dropzone.classList.add("file-selected");
+        label.textContent = "✓ " + file.name + " (" + Math.round(fileContent.length / 1000) + "k chars extracted)";
+      } catch (err) {
+        label.textContent = "⚠ Error reading file: " + err.message;
+        fileContent = null;
+      }
+    }
+
+    // Submit
+    document.getElementById("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const note = document.getElementById("note").value.trim();
+      const btn  = document.getElementById("btn");
+      const resultEl = document.getElementById("result");
+
+      let payload;
+
+      if (activeTab === "url") {
+        const url = document.getElementById("url").value.trim();
+        if (!url) { alert("Please enter a URL."); return; }
+        payload = { url, note };
+
+      } else if (activeTab === "file") {
+        if (!fileContent) { alert("Please select a file."); return; }
+        payload = { url: "local-file:" + (fileName || "upload"), content: fileContent, filename: fileName, note };
+
+      } else {
+        const content = document.getElementById("pasteContent").value.trim();
+        const title   = document.getElementById("pasteTitle").value.trim();
+        if (!content) { alert("Please paste some content."); return; }
+        payload = { url: "pasted-text:" + (title || "untitled"), content, filename: title || "Pasted text", note };
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Processing…';
+      resultEl.style.display = "none";
+
+      try {
+        const res  = await fetch(WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          resultEl.className = "result success";
+          resultEl.innerHTML = `
+            <div class="result-title">Saved to Airtable</div>
+            <div class="result-field"><span class="result-label">Title:</span> ${data.title}</div>
+            <div class="result-field"><span class="result-label">Type:</span> ${data.source_type}</div>
+            <div class="result-field"><span class="result-label">Record ID:</span> ${data.record_id}</div>
+            <div class="result-field" style="margin-top:8px"><span class="result-label">Tags:</span>
+              <div class="tags">${(data.tags || []).map(t => `<span class="tag">${t}</span>`).join("")}</div>
+            </div>
+            <div class="result-field" style="margin-top:10px;color:#444">${data.summary ? data.summary.substring(0, 300) + "…" : ""}</div>
+          `;
+        } else {
+          resultEl.className = "result error";
+          resultEl.innerHTML = `<div class="result-title">Error: ${data.error || "unknown"}</div><div>${data.message || "Something went wrong."}</div>`;
+        }
+      } catch (err) {
+        resultEl.className = "result error";
+        resultEl.innerHTML = `<div class="result-title">Network error</div><div>${err.message}</div>`;
+      }
+
+      resultEl.style.display = "block";
+      btn.disabled = false;
+      btn.innerHTML = "Save to Research Library";
+    });
+  </script>
+</body>
+</html>
