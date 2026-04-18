@@ -171,6 +171,79 @@
     }
 
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Wiki section */
+    .wiki-section {
+      margin-top: 32px;
+      padding-top: 28px;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .wiki-section h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #111;
+      margin-bottom: 4px;
+    }
+
+    .wiki-section .wiki-subtitle {
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 16px;
+    }
+
+    #btn-wiki {
+      width: 100%;
+      background: white;
+      color: #4f46e5;
+      border: 1.5px solid #4f46e5;
+      border-radius: 8px;
+      padding: 11px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    #btn-wiki:hover { background: #f0f0ff; }
+    #btn-wiki:disabled { background: #f9fafb; color: #a5a3f7; border-color: #c7d2fe; cursor: not-allowed; }
+
+    .wiki-result {
+      margin-top: 16px;
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-size: 13px;
+      display: none;
+    }
+
+    .wiki-result.success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+    .wiki-result.error   { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+    .wiki-result.info    { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+
+    .wiki-result-title { font-weight: 600; margin-bottom: 8px; }
+    .wiki-log {
+      font-family: "Menlo", "Consolas", monospace;
+      font-size: 11px;
+      background: rgba(0,0,0,0.04);
+      border-radius: 4px;
+      padding: 8px;
+      margin-top: 8px;
+      max-height: 160px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .wiki-next-step {
+      margin-top: 10px;
+      padding: 10px 12px;
+      background: #fefce8;
+      border: 1px solid #fde68a;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #92400e;
+      line-height: 1.5;
+    }
   </style>
 </head>
 <body>
@@ -229,6 +302,14 @@
     </form>
 
     <div class="result" id="result"></div>
+
+    <!-- Update Knowledge Base -->
+    <div class="wiki-section">
+      <h2>Knowledge Base</h2>
+      <p class="wiki-subtitle">Export your Airtable records to the local wiki folder so Claude Code can rebuild the wiki.</p>
+      <button id="btn-wiki" type="button" onclick="updateWiki()">⟳ Update Knowledge Base</button>
+      <div class="wiki-result" id="wiki-result"></div>
+    </div>
   </div>
 
   <script>
@@ -376,6 +457,78 @@
       btn.disabled = false;
       btn.innerHTML = "Save to Research Library";
     });
+    // Update Knowledge Base
+    const WIKI_SERVER = "http://localhost:3456";
+
+    async function updateWiki() {
+      const btn    = document.getElementById("btn-wiki");
+      const result = document.getElementById("wiki-result");
+
+      btn.disabled = true;
+      btn.textContent = "Checking server…";
+      result.style.display = "none";
+
+      // 1. Health check — is wiki-server.js running?
+      let serverUp = false;
+      try {
+        const health = await fetch(WIKI_SERVER + "/health", { signal: AbortSignal.timeout(3000) });
+        serverUp = health.ok;
+      } catch (_) {
+        serverUp = false;
+      }
+
+      if (!serverUp) {
+        result.className = "wiki-result info";
+        result.innerHTML = `
+          <div class="wiki-result-title">Wiki server not running</div>
+          <p>Start it once in a terminal, then click the button again:</p>
+          <div class="wiki-log">cd "C:\\Users\\kevin\\OneDrive\\Documents\\AI_Projects\\Research_Agent"
+node wiki-server.js</div>
+          <p style="margin-top:8px">Keep that terminal open while you use this button.</p>
+        `;
+        result.style.display = "block";
+        btn.disabled = false;
+        btn.textContent = "⟳ Update Knowledge Base";
+        return;
+      }
+
+      // 2. Trigger export
+      btn.textContent = "Exporting from Airtable…";
+      try {
+        const res  = await fetch(WIKI_SERVER + "/update-wiki", { method: "POST" });
+        const data = await res.json();
+
+        if (data.ok) {
+          const logText = (data.lines || []).join("\n");
+          result.className = "wiki-result success";
+          result.innerHTML = `
+            <div class="wiki-result-title">✓ Export complete — wiki/raw/ updated</div>
+            ${logText ? `<div class="wiki-log">${escapeHtml(logText)}</div>` : ""}
+            <div class="wiki-next-step">
+              <strong>Next step:</strong> Open Claude Code, cd to the wiki folder, and say:<br>
+              <em>"I just added new sources to the raw/ folder. Please read them and build the wiki."</em>
+            </div>
+          `;
+        } else {
+          result.className = "wiki-result error";
+          result.innerHTML = `
+            <div class="wiki-result-title">Export failed</div>
+            ${data.error ? `<div class="wiki-log">${escapeHtml(data.error)}</div>` : ""}
+          `;
+        }
+      } catch (err) {
+        result.className = "wiki-result error";
+        result.innerHTML = `<div class="wiki-result-title">Request failed</div><div>${err.message}</div>`;
+      }
+
+      result.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = "⟳ Update Knowledge Base";
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    }
   </script>
 </body>
 </html>
