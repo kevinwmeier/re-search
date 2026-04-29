@@ -1,0 +1,1207 @@
+{
+  "name": "Research Agent — Phase 1",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "research-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "research-agent-phase1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract and normalise the incoming webhook body.\n// Sets routing flags used by the downstream IF nodes.\n\nconst webhookData = $input.first().json;\nconst body = webhookData.body || webhookData;\n\nconst url      = (body.url      || '').trim();\nconst note     = (body.note     || '').trim();\nconst content  = (body.content  || '').trim();\nconst filename = (body.filename || '').trim();\n\n// Pre-provided content: file upload or pasted text sent directly in the payload\nconst isPreProvided = content.length >= 200;\n\n// YouTube URL — only relevant when content is not pre-provided\nconst isYoutube = !isPreProvided && /youtube\\.com\\/watch|youtu\\.be\\//i.test(url);\n\nreturn [{ json: { url, note, content, filename, isPreProvided, isYoutube } }];"
+      },
+      "id": "a1b2c3d4-0020-0020-0020-000000000020",
+      "name": "Route Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-pre-provided",
+              "leftValue": "={{ $json.isPreProvided }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a1b2c3d4-0021-0021-0021-000000000021",
+      "name": "IF Pre-provided",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Content was supplied directly (file upload or pasted text). Pass it through.\nconst d = $input.first().json;\nconst content = d.content.trim();\nreturn [{ json: { url: d.url, note: d.note, content, contentLength: content.length, jinaOk: true, errorMessage: null } }];"
+      },
+      "id": "a1b2c3d4-0022-0022-0022-000000000022",
+      "name": "Format Pre-provided",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-youtube",
+              "leftValue": "={{ $json.isYoutube }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a1b2c3d4-0023-0023-0023-000000000023",
+      "name": "IF YouTube",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.supadata.ai/v1/youtube/transcript",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ $json.url }}"
+            },
+            {
+              "name": "text",
+              "value": "true"
+            },
+            {
+              "name": "lang",
+              "value": "en"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "sd_YOUR_SUPADATA_API_KEY"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-0024-0024-0024-000000000024",
+      "name": "Supadata HTTP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format the Supadata transcript response.\nconst routeData    = $('Route Input').first().json;\nconst supaResponse = $input.first().json;\nconst url  = routeData.url;\nconst note = routeData.note;\n\nlet content = '';\nlet jinaOk  = false;\nlet errorMessage = null;\n\nif (supaResponse.error) {\n  errorMessage = 'Supadata error: ' + (typeof supaResponse.error === 'string' ? supaResponse.error : JSON.stringify(supaResponse.error).substring(0, 200));\n} else if (supaResponse.content && typeof supaResponse.content === 'string' && supaResponse.content.trim().length >= 200) {\n  content = supaResponse.content.trim();\n  jinaOk  = true;\n} else {\n  errorMessage = 'Supadata returned no usable transcript. The video may have no captions, be private, or be age-restricted. Response: ' + JSON.stringify(supaResponse).substring(0, 200);\n}\n\nreturn [{ json: { url, note, content, contentLength: content.length, jinaOk, errorMessage } }];"
+      },
+      "id": "a1b2c3d4-0025-0025-0025-000000000025",
+      "name": "Format Supadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://r.jina.ai/' + $json.url }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-0026-0026-0026-000000000026",
+      "name": "Jina HTTP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        500
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format the Jina Reader plain-text response.\nconst routeData    = $('Route Input').first().json;\nconst jinaResponse = $input.first().json;\nconst url  = routeData.url;\nconst note = routeData.note;\n\nlet content = '';\nlet jinaOk  = false;\nlet errorMessage = null;\n\nif (jinaResponse.error) {\n  errorMessage = 'Jina Reader error: ' + JSON.stringify(jinaResponse.error).substring(0, 200);\n} else {\n  // n8n HTTP Request wraps plain-text responses as { data: '...' }\n  const rawBody = jinaResponse.data || jinaResponse.body || jinaResponse.content || '';\n  content = (typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody)).trim();\n\n  if (content.length >= 200) {\n    jinaOk = true;\n  } else {\n    errorMessage = 'Jina Reader returned too little content (' + content.length + ' chars). The URL may be paywalled, JS-rendered, or invalid.';\n  }\n}\n\nreturn [{ json: { url, note, content, contentLength: content.length, jinaOk, errorMessage } }];"
+      },
+      "id": "a1b2c3d4-0027-0027-0027-000000000027",
+      "name": "Format Jina",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-jina-ok",
+              "leftValue": "={{ $json.jinaOk }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a1b2c3d4-0004-0004-0004-000000000004",
+      "name": "IF Content Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the Groq Call 1 request body.\n\nconst SYSTEM_PROMPT = [\n  'You are a research librarian assistant. Your job is to analyze content and return structured metadata as JSON.',\n  '',\n  'You MUST ALWAYS return a JSON object — no matter what the content is, no matter how little there is.',\n  'Even if the content is a webpage stub, a video page, or nearly empty, return your best attempt.',\n  'NEVER respond with plain text. NEVER say you cannot complete the task. ALWAYS return JSON.',\n  '',\n  'Return a single JSON object with EXACTLY these fields and no others:',\n  '{',\n  '  \"title\": \"<string — extracted or inferred title>\",',\n  '  \"source_type\": \"<one of: Article | PDF | Podcast | Video | Report | Other>\",',\n  '  \"summary\": \"<string — 2 to 3 paragraphs of plain text, no bullet points, no markdown>\",',\n  '  \"key_claims\": [\"<string>\", \"<string>\", \"<string>\"],',\n  '  \"tags\": [\"<tag>\", \"<tag>\", \"<tag>\"]',\n  '}',\n  '',\n  'Rules:',\n  '- title: Use the content\\'s own title if present. Infer a descriptive title if none is given.',\n  '- source_type: Choose the closest match. If the text reads like a spoken transcript, set to Podcast or Video.',\n  '- summary: Plain prose only — no bullet points, no markdown, no newlines within the value. Two to three sentences minimum. Write for an intelligent professional researcher.',\n  '- key_claims: Array of 3 to 5 strings. Each is one specific fact or assertion.',\n  '- tags: Array of 5 to 10 tags, lowercase and hyphenated (e.g. neural-networks, llm-training, transformer-architecture). Be specific to the content domain.',\n  '',\n  'JSON FORMATTING RULES — these are absolute:',\n  '- All string values must be on a single line — no literal newlines inside any string value.',\n  '- No trailing commas.',\n  '- No comments.',\n  '- The response must begin with { and end with } and contain nothing else.',\n  '- No markdown code fences, no preamble, no explanation outside the JSON object.'\n].join('\\n');\n\nconst url     = $json.url || '';\nconst note    = $json.note || '';\nconst content = ($json.content || '').substring(0, 6000);\n\nconst userMessage = 'Analyze the following article content and return the JSON metadata object.\\n\\nSource URL: ' + url + '\\n\\nArticle content:\\n' + content;\n\nconst groqBody = JSON.stringify({\n  model: 'llama-3.1-8b-instant',\n  temperature: 0.3,\n  max_tokens: 2000,\n  messages: [\n    { role: 'system', content: SYSTEM_PROMPT },\n    { role: 'user',   content: userMessage }\n  ]\n});\n\nreturn [{\n  json: {\n    url,\n    note,\n    content: $json.content || '',\n    contentLength: $json.contentLength || 0,\n    groqBody\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0018-0018-0018-000000000018",
+      "name": "Build Groq Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer gsk_YOUR_GROQ_API_KEY_1"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.groqBody }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-0005-0005-0005-000000000005",
+      "name": "Groq Call 1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        160
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Groq Call 1 response and validate required fields.\n\nfunction sanitizeJson(str) {\n  let result = '';\n  let inString = false;\n  let escaped  = false;\n  for (let i = 0; i < str.length; i++) {\n    const ch   = str[i];\n    const code = str.charCodeAt(i);\n    if (escaped) { result += ch; escaped = false; continue; }\n    if (ch === '\\\\') { result += ch; escaped = true; continue; }\n    if (ch === '\"')  { inString = !inString; result += ch; continue; }\n    if (inString && code < 32) {\n      if      (code === 10) result += '\\\\n';\n      else if (code === 13) result += '\\\\r';\n      else if (code ===  9) result += '\\\\t';\n      else result += '\\\\u' + code.toString(16).padStart(4, '0');\n      continue;\n    }\n    result += ch;\n  }\n  return result;\n}\n\nconst buildGroqData = $('Build Groq Request').first().json;\nconst url  = buildGroqData.url  || '';\nconst note = buildGroqData.note || '';\nconst groqResponse = $input.first().json;\n\nif (groqResponse.error) {\n  return [{ json: { groqOk: false, url, note, errorMessage: 'Groq API error: ' + (groqResponse.error.message || JSON.stringify(groqResponse.error)) } }];\n}\n\nlet rawContent = '';\ntry {\n  rawContent = groqResponse.choices[0].message.content;\n} catch (e) {\n  return [{ json: { groqOk: false, url, note, errorMessage: 'Unexpected Groq response shape: ' + JSON.stringify(groqResponse).substring(0, 500) } }];\n}\n\nlet cleaned = rawContent.trim();\nif (cleaned.startsWith('```')) {\n  cleaned = cleaned.replace(/^```[a-z]*\\n?/i, '').replace(/```$/, '').trim();\n}\n\nconst start = cleaned.indexOf('{');\nconst end   = cleaned.lastIndexOf('}');\nif (start === -1 || end === -1) {\n  return [{ json: { groqOk: false, url, note, rawGroqContent: cleaned.substring(0, 500), errorMessage: 'No JSON object found in Groq response' } }];\n}\ncleaned = cleaned.substring(start, end + 1);\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (e1) {\n  try {\n    parsed = JSON.parse(sanitizeJson(cleaned));\n  } catch (e2) {\n    return [{ json: { groqOk: false, url, note, rawGroqContent: cleaned.substring(0, 500), errorMessage: 'Groq returned malformed JSON: ' + e2.message } }];\n  }\n}\n\nconst required = ['title', 'source_type', 'summary', 'key_claims', 'tags'];\nconst missing  = required.filter(f => !parsed[f]);\nif (missing.length > 0) {\n  return [{ json: { groqOk: false, url, note, rawGroqContent: cleaned.substring(0, 500), errorMessage: 'Groq JSON missing fields: ' + missing.join(', ') } }];\n}\n\nconst validSourceTypes = ['Article', 'PDF', 'Podcast', 'Video', 'Report', 'Other'];\nif (!validSourceTypes.includes(parsed.source_type)) parsed.source_type = 'Other';\nif (!Array.isArray(parsed.key_claims)) parsed.key_claims = [String(parsed.key_claims)];\nif (!Array.isArray(parsed.tags))       parsed.tags       = [String(parsed.tags)];\n\nconst keyClaimsText = parsed.key_claims.map(c => '\\u2022 ' + c).join('\\n');\nconst today = new Date().toISOString().split('T')[0];\n\nreturn [{ json: { groqOk: true, url, note, title: parsed.title, source_type: parsed.source_type, summary: parsed.summary, key_claims: keyClaimsText, tags: parsed.tags, date_added: today } }];"
+      },
+      "id": "a1b2c3d4-0006-0006-0006-000000000006",
+      "name": "Parse Groq Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-groq-ok",
+              "leftValue": "={{ $json.groqOk }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a1b2c3d4-0007-0007-0007-000000000007",
+      "name": "IF Groq Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appgiz3nNzSPrOfpR/Research%20Items",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer pat_YOUR_AIRTABLE_PAT"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  typecast: true,\n  fields: {\n    title:       $json.title,\n    url:         $json.url,\n    date_added:  $json.date_added,\n    source_type: $json.source_type,\n    summary:     $json.summary,\n    key_claims:  $json.key_claims,\n    tags:        $json.tags,\n    my_notes:    $json.note || ''\n  }\n}) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-0008-0008-0008-000000000008",
+      "name": "Airtable Create Record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2660,
+        160
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check Airtable response and extract the created record ID.\n\nconst groqData         = $('Parse Groq Response').first().json;\nconst airtableResponse = $input.first().json;\n\nif (airtableResponse.error) {\n  return [{ json: {\n    airtableOk: false,\n    url:   groqData.url,\n    title: groqData.title,\n    errorMessage: 'Airtable API error: ' + (airtableResponse.error.message || JSON.stringify(airtableResponse.error))\n  }}];\n}\n\nif (!airtableResponse.id) {\n  return [{ json: {\n    airtableOk: false,\n    url:   groqData.url,\n    title: groqData.title,\n    errorMessage: 'Airtable response missing record ID: ' + JSON.stringify(airtableResponse).substring(0, 300)\n  }}];\n}\n\nreturn [{ json: {\n  airtableOk: true,\n  recordId:    airtableResponse.id,\n  url:         groqData.url,\n  title:       groqData.title,\n  summary:     groqData.summary,\n  tags:        groqData.tags,\n  source_type: groqData.source_type\n}}];"
+      },
+      "id": "a1b2c3d4-0009-0009-0009-000000000009",
+      "name": "Check Airtable Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-at-ok",
+              "leftValue": "={{ $json.airtableOk }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a1b2c3d4-0010-0010-0010-000000000010",
+      "name": "IF Airtable OK",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3100,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.airtable.com/v0/appgiz3nNzSPrOfpR/Research%20Items",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer pat_YOUR_AIRTABLE_PAT"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "sort[0][field]",
+              "value": "date_added"
+            },
+            {
+              "name": "sort[0][direction]",
+              "value": "desc"
+            },
+            {
+              "name": "maxRecords",
+              "value": "51"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ 'AND(NOT({title} = \"\"), RECORD_ID() != \"' + $json.recordId + '\")' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-0028-0028-0028-000000000028",
+      "name": "Fetch Prior Records",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3320,
+        160
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the Phase 2 Groq request — find articles related to the newly saved one.\n\nconst SYSTEM_PROMPT = 'You are a research librarian assistant. Your job is to identify meaningful connections between a newly saved article and a list of previously saved research items.\\n\\nYou will receive:\\n1. A new article\\'s tags and summary\\n2. A list of up to 50 previously saved articles with their titles, URLs, and tags\\n\\nReturn a JSON object with EXACTLY this shape:\\n{\\n  \"related\": [\\n    { \"title\": \"<string>\", \"url\": \"<string>\", \"reason\": \"<string — one sentence>\" }\\n  ]\\n}\\n\\nRules:\\n- Select the top 3 most meaningfully related prior articles. If fewer than 3 are genuinely related, return fewer — do not force weak connections.\\n- A connection is meaningful if the prior article shares at least 2 tags, addresses the same underlying question, or directly supports or contradicts the new article\\'s key argument.\\n- The reason field must be a single sentence explaining the specific connection — not generic phrasing like \\'both discuss AI\\'.\\n- Do not include the new article itself in the results.\\n- If no prior articles are meaningfully related, return { \"related\": [] }.\\n\\nCRITICAL: Return only the raw JSON object. No markdown code fences, no preamble, no explanation. The response must begin with { and end with }.';\n\nconst newArticle      = $('Parse Groq Response').first().json;\nconst airtableData    = $('Check Airtable Response').first().json;\nconst priorResponse   = $input.first().json;\n\nconst newUrl     = airtableData.url || '';\nconst newTags    = Array.isArray(newArticle.tags) ? newArticle.tags.join(', ') : (newArticle.tags || '');\nconst newSummary = newArticle.summary || '';\n\n// Extract prior records from Airtable list response, strip the newly created one\nconst records = (priorResponse.records || [])\n  .filter(r => r.fields && r.fields.title && r.fields.url !== newUrl)\n  .slice(0, 50)\n  .map(r => ({\n    title: r.fields.title || '',\n    url:   r.fields.url   || '',\n    tags:  Array.isArray(r.fields.tags) ? r.fields.tags : []\n  }));\n\n// No prior records yet — skip Groq and go straight to Respond Success\nif (records.length === 0) {\n  return [{ json: { skipGroq2: true, recordId: airtableData.recordId } }];\n}\n\nconst userMessage = 'New article:\\nTags: ' + newTags + '\\nSummary: ' + newSummary + '\\n\\nPreviously saved articles:\\n' + JSON.stringify(records, null, 2);\n\nconst groq2Body = JSON.stringify({\n  model: 'llama-3.1-8b-instant',\n  temperature: 0.3,\n  max_tokens: 800,\n  messages: [\n    { role: 'system', content: SYSTEM_PROMPT },\n    { role: 'user',   content: userMessage }\n  ]\n});\n\nreturn [{ json: { skipGroq2: false, groq2Body, recordId: airtableData.recordId } }];"
+      },
+      "id": "a1b2c3d4-0029-0029-0029-000000000029",
+      "name": "Build Groq 2 Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3540,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-skip-groq2",
+              "leftValue": "={{ $json.skipGroq2 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a1b2c3d4-0034-0034-0034-000000000034",
+      "name": "IF Skip Groq 2",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3760,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer gsk_YOUR_GROQ_API_KEY_2"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.groq2Body }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-0030-0030-0030-000000000030",
+      "name": "Groq Call 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3980,
+        160
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Phase 2 Groq response — extract related items.\n// Failures here are non-fatal: the record is already saved.\n\nfunction sanitizeJson(str) {\n  let result = '';\n  let inString = false;\n  let escaped  = false;\n  for (let i = 0; i < str.length; i++) {\n    const ch   = str[i];\n    const code = str.charCodeAt(i);\n    if (escaped) { result += ch; escaped = false; continue; }\n    if (ch === '\\\\') { result += ch; escaped = true; continue; }\n    if (ch === '\"')  { inString = !inString; result += ch; continue; }\n    if (inString && code < 32) {\n      if      (code === 10) result += '\\\\n';\n      else if (code === 13) result += '\\\\r';\n      else if (code ===  9) result += '\\\\t';\n      else result += '\\\\u' + code.toString(16).padStart(4, '0');\n      continue;\n    }\n    result += ch;\n  }\n  return result;\n}\n\nconst buildData    = $('Build Groq 2 Request').first().json;\nconst groqResponse = $input.first().json;\nconst recordId     = buildData.recordId;\n\n// Groq API error — skip update, still respond success\nif (groqResponse.error) {\n  return [{ json: { hasRelated: false, recordId, relatedText: '' } }];\n}\n\nlet rawContent = '';\ntry {\n  rawContent = groqResponse.choices[0].message.content;\n} catch (e) {\n  return [{ json: { hasRelated: false, recordId, relatedText: '' } }];\n}\n\nlet cleaned = rawContent.trim();\nif (cleaned.startsWith('```')) {\n  cleaned = cleaned.replace(/^```[a-z]*\\n?/i, '').replace(/```$/, '').trim();\n}\n\nconst start = cleaned.indexOf('{');\nconst end   = cleaned.lastIndexOf('}');\nif (start === -1 || end === -1) {\n  return [{ json: { hasRelated: false, recordId, relatedText: '' } }];\n}\ncleaned = cleaned.substring(start, end + 1);\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (e1) {\n  try {\n    parsed = JSON.parse(sanitizeJson(cleaned));\n  } catch (e2) {\n    return [{ json: { hasRelated: false, recordId, relatedText: '' } }];\n  }\n}\n\nconst related = Array.isArray(parsed.related) ? parsed.related.filter(r => r.title && r.url && r.reason) : [];\n\nif (related.length === 0) {\n  return [{ json: { hasRelated: false, recordId, relatedText: '' } }];\n}\n\n// Format as readable plain text for the Airtable multilineText field\nconst relatedText = related\n  .map(item => '\\u2022 ' + item.title + '\\n  ' + item.url + '\\n  Why: ' + item.reason)\n  .join('\\n\\n');\n\nreturn [{ json: { hasRelated: true, recordId, relatedText } }];"
+      },
+      "id": "a1b2c3d4-0031-0031-0031-000000000031",
+      "name": "Parse Groq 2 Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4200,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-has-related",
+              "leftValue": "={{ $json.hasRelated }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a1b2c3d4-0032-0032-0032-000000000032",
+      "name": "IF Has Related",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4420,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ 'https://api.airtable.com/v0/appgiz3nNzSPrOfpR/Research%20Items/' + $json.recordId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer pat_YOUR_AIRTABLE_PAT"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ fields: { related_items: $json.relatedText } }) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-0033-0033-0033-000000000033",
+      "name": "Update Related Items",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4640,
+        80
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, record_id: $('Check Airtable Response').first().json.recordId, title: $('Check Airtable Response').first().json.title, summary: $('Check Airtable Response').first().json.summary, tags: $('Check Airtable Response').first().json.tags, source_type: $('Check Airtable Response').first().json.source_type, url: $('Check Airtable Response').first().json.url }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "a1b2c3d4-0011-0011-0011-000000000011",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        4860,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appgiz3nNzSPrOfpR/Errors",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer pat_YOUR_AIRTABLE_PAT"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  fields: {\n    error_type:    'content_fetch_failed',\n    url:           $json.url,\n    note:          $json.note || '',\n    error_message: $json.errorMessage,\n    raw_content:   ($json.content || '').substring(0, 2000),\n    workflow_node: 'Content Fetch',\n    timestamp:     new Date().toISOString()\n  }\n}) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-0012-0012-0012-000000000012",
+      "name": "Log Jina Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1780,
+        520
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: 'content_fetch_failed', message: $('IF Content Valid').first().json.errorMessage || 'Content could not be fetched', url: $('IF Content Valid').first().json.url }) }}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "id": "a1b2c3d4-0013-0013-0013-000000000013",
+      "name": "Respond Jina Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appgiz3nNzSPrOfpR/Errors",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer pat_YOUR_AIRTABLE_PAT"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  fields: {\n    error_type:    'groq_invalid_json',\n    url:           $json.url,\n    note:          $json.note || '',\n    error_message: $json.errorMessage,\n    raw_content:   ($json.rawGroqContent || '').substring(0, 2000),\n    workflow_node: 'Groq Call 1',\n    timestamp:     new Date().toISOString()\n  }\n}) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-0014-0014-0014-000000000014",
+      "name": "Log Groq Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2660,
+        380
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: 'groq_invalid_json', message: $('Parse Groq Response').first().json.errorMessage, url: $('Parse Groq Response').first().json.url }) }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "a1b2c3d4-0015-0015-0015-000000000015",
+      "name": "Respond Groq Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2880,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appgiz3nNzSPrOfpR/Errors",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer pat_YOUR_AIRTABLE_PAT"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  fields: {\n    error_type:    'airtable_create_failed',\n    url:           $json.url,\n    note:          '',\n    error_message: $json.errorMessage,\n    raw_content:   '',\n    workflow_node: 'Airtable Create Record',\n    timestamp:     new Date().toISOString()\n  }\n}) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-0016-0016-0016-000000000016",
+      "name": "Log Airtable Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3320,
+        420
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: 'airtable_create_failed', message: $('Check Airtable Response').first().json.errorMessage, url: $('Check Airtable Response').first().json.url }) }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "a1b2c3d4-0017-0017-0017-000000000017",
+      "name": "Respond Airtable Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        3540,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Route Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Input": {
+      "main": [
+        [
+          {
+            "node": "IF Pre-provided",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Pre-provided": {
+      "main": [
+        [
+          {
+            "node": "Format Pre-provided",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF YouTube",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Pre-provided": {
+      "main": [
+        [
+          {
+            "node": "IF Content Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF YouTube": {
+      "main": [
+        [
+          {
+            "node": "Supadata HTTP",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Jina HTTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supadata HTTP": {
+      "main": [
+        [
+          {
+            "node": "Format Supadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Supadata": {
+      "main": [
+        [
+          {
+            "node": "IF Content Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jina HTTP": {
+      "main": [
+        [
+          {
+            "node": "Format Jina",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Jina": {
+      "main": [
+        [
+          {
+            "node": "IF Content Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Content Valid": {
+      "main": [
+        [
+          {
+            "node": "Build Groq Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Jina Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Groq Request": {
+      "main": [
+        [
+          {
+            "node": "Groq Call 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Call 1": {
+      "main": [
+        [
+          {
+            "node": "Parse Groq Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Groq Response": {
+      "main": [
+        [
+          {
+            "node": "IF Groq Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Groq Valid": {
+      "main": [
+        [
+          {
+            "node": "Airtable Create Record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Groq Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable Create Record": {
+      "main": [
+        [
+          {
+            "node": "Check Airtable Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Airtable Response": {
+      "main": [
+        [
+          {
+            "node": "IF Airtable OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Airtable OK": {
+      "main": [
+        [
+          {
+            "node": "Fetch Prior Records",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Airtable Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Prior Records": {
+      "main": [
+        [
+          {
+            "node": "Build Groq 2 Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Groq 2 Request": {
+      "main": [
+        [
+          {
+            "node": "IF Skip Groq 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Skip Groq 2": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Groq Call 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Call 2": {
+      "main": [
+        [
+          {
+            "node": "Parse Groq 2 Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Groq 2 Response": {
+      "main": [
+        [
+          {
+            "node": "IF Has Related",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has Related": {
+      "main": [
+        [
+          {
+            "node": "Update Related Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Related Items": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Jina Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Jina Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Groq Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Groq Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Airtable Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Airtable Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "tags": [
+    {
+      "name": "research-agent"
+    },
+    {
+      "name": "phase-1"
+    }
+  ],
+  "pinData": {}
+}
